@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Tyutorlar GPS Davomat Tizimi</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+    .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+    .pulse-ring { animation: pulse-ring 1.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+      70% { transform: scale(1); box-shadow: 0 0 0 14px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+  </style>
+</head>
+<body class="text-slate-800 pb-20">
+
+  <!-- ===================================================================== -->
+  <!-- DIQQAT: SUPABASE URL VA ANON KEY NI SHU YERGA KIRITING                -->
+  <!-- ===================================================================== -->
+  <script>
+    const SUPABASE_URL = "SIZNING_SUPABASE_URL_MANZILINGIZ";
+    const SUPABASE_ANON_KEY = "SIZNING_SUPABASE_ANON_KEY_KALITINGIZ";
+  </script>
+
+  <!-- TOP HEADER -->
+  <header class="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white px-4 py-4 shadow-md sticky top-0 z-30">
+    <div class="max-w-xl mx-auto flex items-center justify-between">
+      <div>
+        <h1 class="text-base font-bold tracking-tight flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
+          <span id="headerOrgName">GPS Davomat Tizimi</span>
+        </h1>
+        <p class="text-xs text-blue-200 mt-0.5" id="liveClock">Yuklanmoqda...</p>
+      </div>
+      <div class="flex gap-1.5 bg-white/10 p-1 rounded-xl">
+        <button onclick="switchTab('staff')" id="tabBtnStaff" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-slate-900 shadow transition">
+          Xodim
+        </button>
+        <button onclick="openAdminTab()" id="tabBtnAdmin" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-100 hover:text-white transition">
+          Admin
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-xl mx-auto px-4 pt-4 space-y-4">
+
+    <!-- CONFIG WARNING BANNER (if keys not replaced) -->
+    <div id="configWarning" class="hidden bg-amber-50 border border-amber-300 text-amber-900 p-3.5 rounded-2xl text-xs leading-relaxed">
+      <strong>⚠️ Sozlash talab etiladi:</strong> <code>index.html</code> fayli ichidagi <code>SUPABASE_URL</code> va <code>SUPABASE_ANON_KEY</code> qiymatlarini o‘zingizning Supabase loyihangiz kalitlari bilan almashtiring.
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- 1. XODIM (TYUTOR) OYNASI                                              -->
+    <!-- ===================================================================== -->
+    <section id="staffView" class="space-y-4">
+
+      <!-- Ish jadvali info kartasi -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex items-center justify-between">
+        <div>
+          <span class="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Belgilangan ish vaqti</span>
+          <div class="text-sm font-bold text-slate-800 mt-0.5" id="displayWorkHours">08:30 — 17:00</div>
+        </div>
+        <div class="text-right">
+          <span class="text-[11px] uppercase tracking-wider font-semibold text-slate-400">Ruxsat radiusi</span>
+          <div class="text-sm font-bold text-blue-600 mt-0.5" id="displayRadius">100 metr</div>
+        </div>
+      </div>
+
+      <!-- Xodimni tanlash -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold text-slate-600">O‘zingizni tanlang (F.I.Sh.)</label>
+          <span id="deviceLockBadge" class="hidden text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+            🔒 Qurilma biriktirilgan
+          </span>
+        </div>
+        <select id="staffSelect" onchange="onStaffChange()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block p-3 font-medium">
+          <option value="">-- Ro‘yxatdan tanlang --</option>
+        </select>
+
+        <!-- Bugungi holati -->
+        <div id="todayStatusBox" class="hidden bg-slate-50 rounded-xl p-3 border border-slate-200/80 text-xs space-y-1.5">
+          <div class="flex justify-between">
+            <span class="text-slate-500">Bugungi sana:</span>
+            <span class="font-semibold text-slate-800" id="stDate">-</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Ishga kelgan vaqt:</span>
+            <span class="font-bold text-emerald-600" id="stCheckIn">Hali qayd etilmagan</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Ishdan ketgan vaqt:</span>
+            <span class="font-bold text-blue-600" id="stCheckOut">Hali qayd etilmagan</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- GPS tekshiruv va Tugmalar -->
+      <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 text-center space-y-4">
+        <div id="gpsStatusCard" class="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-blue-900">
+          📍 Tugmani bosganingizda telefoningiz GPS koordinatasi avtomatik tekshiriladi.
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <button id="btnCheckIn" onclick="submitAttendance('in')" class="pulse-ring flex flex-col items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-4 px-3 rounded-2xl shadow-lg shadow-emerald-600/20 transition disabled:opacity-40 disabled:pointer-events-none">
+            <span class="text-2xl">🟢</span>
+            <span class="text-sm">ISHGA KELDIM</span>
+            <span class="text-[10px] font-normal text-emerald-100">GPS orqali tasdiqlash</span>
+          </button>
+
+          <button id="btnCheckOut" onclick="submitAttendance('out')" class="flex flex-col items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold py-4 px-3 rounded-2xl shadow-lg shadow-blue-600/20 transition disabled:opacity-40 disabled:pointer-events-none">
+            <span class="text-2xl">🔵</span>
+            <span class="text-sm">ISHDAN KETDIM</span>
+            <span class="text-[10px] font-normal text-blue-100">GPS orqali yakunlash</span>
+          </button>
+        </div>
+
+        <!-- Sababli holat yuborish -->
+        <div class="pt-2 border-t border-slate-100">
+          <button onclick="toggleExcuseBox()" class="text-xs text-slate-500 hover:text-blue-600 font-medium underline">
+            Xizmat safari yoki sababli holatni kiritish
+          </button>
+          <div id="excuseBox" class="hidden mt-3 space-y-2 text-left">
+            <input type="text" id="excuseReason" placeholder="Sababni yozing (masalan: Rektorat topshirig'i bilan...)" class="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-slate-50" />
+            <button onclick="submitExcuse()" class="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold py-2.5 rounded-xl">
+              Sababli holatni saqlash
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bugungi umumiy jonli ro'yxat -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-500">Bugungi davomat holati</h2>
+          <button onclick="loadAllData()" class="text-xs text-blue-600 font-semibold">🔄 Yangilash</button>
+        </div>
+        <div id="publicTodayList" class="divide-y divide-slate-100 text-xs">
+          <p class="text-slate-400 py-4 text-center">Ma'lumotlar yuklanmoqda...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- 2. ADMIN (DEKANAT) PANELI                                             -->
+    <!-- ===================================================================== -->
+    <section id="adminView" class="hidden space-y-4">
+
+      <!-- Statistika -->
+      <div class="grid grid-cols-3 gap-2.5 text-center">
+        <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div class="text-lg font-extrabold text-emerald-600" id="statPresent">0</div>
+          <div class="text-[11px] text-slate-500 font-medium">Kelganlar</div>
+        </div>
+        <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div class="text-lg font-extrabold text-amber-500" id="statLate">0</div>
+          <div class="text-[11px] text-slate-500 font-medium">Kechikkanlar</div>
+        </div>
+        <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div class="text-lg font-extrabold text-rose-500" id="statAbsent">0</div>
+          <div class="text-[11px] text-slate-500 font-medium">Kelmaganlar</div>
+        </div>
+      </div>
+
+      <!-- Sana bo'yicha hisobot va Excel yuklash -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800">Kunlik Davomat Jurnali</h3>
+            <p class="text-[11px] text-slate-400">Sana tanlang yoki Excel yuklab oling</p>
+          </div>
+          <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-sm flex items-center gap-1.5">
+            <span>📥 Excel (.xlsx)</span>
+          </button>
+        </div>
+
+        <div class="flex gap-2">
+          <input type="date" id="adminFilterDate" onchange="loadLogsForDate()" class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold" />
+          <button onclick="loadLogsForDate()" class="bg-slate-800 text-white text-xs font-semibold px-4 rounded-xl">Ko‘rish</button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100 text-slate-600 border-b border-slate-200">
+                <th class="py-2 px-2 rounded-tl-lg">F.I.Sh.</th>
+                <th class="py-2 px-1.5 text-center">Keldi</th>
+                <th class="py-2 px-1.5 text-center">Ketdi</th>
+                <th class="py-2 px-2 text-right rounded-tr-lg">Holat / Masofa</th>
+              </tr>
+            </thead>
+            <tbody id="adminLogsTable" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Vaqt va GPS Koordinata Sozlamalari -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <span>⚙️</span> Ish vaqti va GPS hudud sozlamalari
+        </h3>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Ish boshlanish vaqti</label>
+            <input type="time" id="setWorkStart" class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-sm font-bold" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Ish tugash vaqti</label>
+            <input type="time" id="setWorkEnd" class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-sm font-bold" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Kenglik (Latitude)</label>
+            <input type="number" step="any" id="setLat" class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-mono" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Uzunlik (Longitude)</label>
+            <input type="number" step="any" id="setLng" class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-mono" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Ruxsat radiusi (metr)</label>
+            <input type="number" id="setRadius" class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-500 mb-1">Admin PIN kod</label>
+            <input type="text" id="setAdminPin" class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-bold" />
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button onclick="useCurrentGpsForSettings()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-2.5 rounded-xl border border-slate-300">
+            📍 Hozirgi joyimni olish
+          </button>
+          <button onclick="saveSettings()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl shadow-sm">
+            💾 Saqlash
+          </button>
+        </div>
+      </div>
+
+      <!-- Yangi xodim qo'shish va boshqarish -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <span>👥</span> Xodimlar ro‘yxatini boshqarish
+        </h3>
+
+        <div class="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <input type="text" id="newStaffName" placeholder="Yangi xodim F.I.Sh. (masalan: Karimov Sardor Ali o'g'li)" class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs" />
+          <div class="flex gap-2">
+            <input type="text" id="newStaffPos" value="Tyutor" placeholder="Lavozimi (Tyutor, Dekan o'rinbosari...)" class="flex-1 bg-white border border-slate-300 rounded-xl p-2.5 text-xs" />
+            <button onclick="addStaffMember()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 rounded-xl">
+              + Qo‘shish
+            </button>
+          </div>
+        </div>
+
+        <div id="adminStaffList" class="divide-y divide-slate-100 text-xs max-h-80 overflow-y-auto"></div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- PIN MODAL -->
+  <div id="pinModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-xs w-full p-5 shadow-xl space-y-4 text-center">
+      <div class="text-3xl">🔐</div>
+      <h3 class="text-base font-bold text-slate-800">Admin panelga kirish</h3>
+      <p class="text-xs text-slate-500">Sozlamalar va xodim qo‘shish bo‘limiga kirish uchun PIN kodni kiriting (boshlang‘ich: 2026)</p>
+      <input type="password" id="pinInput" inputmode="numeric" placeholder="****" class="w-full text-center tracking-widest text-lg font-bold border border-slate-300 rounded-xl p-2.5" />
+      <div class="flex gap-2">
+        <button onclick="closePinModal()" class="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold">Bekor qilish</button>
+        <button onclick="verifyPin()" class="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-semibold">Kirish</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-medium px-4 py-3 rounded-xl shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-50 max-w-xs text-center"></div>
+
+  <script>
+    // Telegram WebApp init
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
+
+    let sb = null;
+    let settings = {
+      org_name: "Universitet (Dekanat)",
+      lat: 39.67405,
+      lng: 66.90994,
+      radius_meters: 100,
+      work_start: "08:30",
+      work_end: "17:00",
+      admin_pin: "2026"
+    };
+    let staffList = [];
+    let todayLogs = [];
+    let adminLogs = [];
+    let adminUnlocked = false;
+
+    // Qurilma unikal ID sini olish/yaratish (Anti-cheat)
+    function getDeviceFingerprint() {
+      let fp = localStorage.getItem("univ_device_fp");
+      if (!fp) {
+        const navInfo = [navigator.userAgent, navigator.language, screen.width + "x" + screen.height, Intl.DateTimeFormat().resolvedOptions().timeZone].join("|");
+        fp = "DEV-" + btoa(unescape(encodeURIComponent(navInfo))).slice(0, 12) + "-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+        localStorage.setItem("univ_device_fp", fp);
+      }
+      return fp;
+    }
+
+    function getTashkentDateStr(dateObj = new Date()) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Tashkent',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(dateObj);
+      const y = parts.find(p => p.type === 'year').value;
+      const m = parts.find(p => p.type === 'month').value;
+      const d = parts.find(p => p.type === 'day').value;
+      return `${y}-${m}-${d}`;
+    }
+
+    function formatTimeUZ(isoStr) {
+      if (!isoStr) return "—";
+      return new Intl.DateTimeFormat('uz-UZ', {
+        timeZone: 'Asia/Tashkent',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }).format(new Date(isoStr));
+    }
+
+    function showToast(msg, duration = 3500) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.remove("opacity-0");
+      setTimeout(() => t.classList.add("opacity-0"), duration);
+    }
+
+    // Live clock
+    setInterval(() => {
+      const nowStr = new Intl.DateTimeFormat('uz-UZ', {
+        timeZone: 'Asia/Tashkent',
+        day: '2-digit', month: 'long', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }).format(new Date());
+      document.getElementById("liveClock").textContent = nowStr;
+    }, 1000);
+
+    // Haversine masofa formulasi (metrda)
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return Math.round(R * c);
+    }
+
+    // Kechikish daqiqasini hisoblash
+    function computeLateMinutes(workStartStr) {
+      const now = new Date();
+      const uzTime = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false
+      }).format(now);
+      const [curH, curM] = uzTime.split(':').map(Number);
+      const [stH, stM] = workStartStr.slice(0, 5).split(':').map(Number);
+      const diff = (curH * 60 + curM) - (stH * 60 + stM);
+      return diff > 0 ? diff : 0;
+    }
+
+    async function initApp() {
+      document.getElementById("adminFilterDate").value = getTashkentDateStr();
+
+      if (!SUPABASE_URL.startsWith("http")) {
+        document.getElementById("configWarning").classList.remove("hidden");
+        return;
+      }
+
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      await loadAllData();
+    }
+
+    async function loadAllData() {
+      if (!sb) return;
+      // 1. Settings
+      const { data: setData } = await sb.from('attendance_settings').select('*').eq('id', 1).single();
+      if (setData) {
+        settings = setData;
+        document.getElementById("headerOrgName").textContent = settings.org_name;
+        document.getElementById("displayWorkHours").textContent = `${settings.work_start.slice(0,5)} — ${settings.work_end.slice(0,5)}`;
+        document.getElementById("displayRadius").textContent = `${settings.radius_meters} metr`;
+
+        document.getElementById("setWorkStart").value = settings.work_start.slice(0,5);
+        document.getElementById("setWorkEnd").value = settings.work_end.slice(0,5);
+        document.getElementById("setLat").value = settings.lat;
+        document.getElementById("setLng").value = settings.lng;
+        document.getElementById("setRadius").value = settings.radius_meters;
+        document.getElementById("setAdminPin").value = settings.admin_pin;
+      }
+
+      // 2. Staff list
+      const { data: stData } = await sb.from('staff_members').select('*').eq('is_active', true).order('id', { ascending: true });
+      if (stData) {
+        staffList = stData;
+        renderStaffDropdown();
+        renderAdminStaffList();
+      }
+
+      // 3. Today's logs
+      const todayStr = getTashkentDateStr();
+      const { data: logData } = await sb.from('attendance_logs').select('*').eq('work_date', todayStr);
+      todayLogs = logData || [];
+      renderPublicTodayList();
+      onStaffChange();
+
+      await loadLogsForDate();
+    }
+
+    function renderStaffDropdown() {
+      const sel = document.getElementById("staffSelect");
+      const savedStaffId = localStorage.getItem("selected_staff_id");
+      sel.innerHTML = `<option value="">-- Ro‘yxatdan o‘zingizni tanlang --</option>`;
+      staffList.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = `${s.full_name} (${s.position})`;
+        if (savedStaffId && String(s.id) === String(savedStaffId)) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    function onStaffChange() {
+      const staffId = document.getElementById("staffSelect").value;
+      const box = document.getElementById("todayStatusBox");
+      const badge = document.getElementById("deviceLockBadge");
+      if (!staffId) {
+        box.classList.add("hidden");
+        badge.classList.add("hidden");
+        return;
+      }
+      localStorage.setItem("selected_staff_id", staffId);
+      const staff = staffList.find(s => String(s.id) === String(staffId));
+      if (staff && staff.device_fingerprint) {
+        badge.classList.remove("hidden");
+      } else {
+        badge.classList.add("hidden");
+      }
+
+      const log = todayLogs.find(l => String(l.staff_id) === String(staffId));
+      box.classList.remove("hidden");
+      document.getElementById("stDate").textContent = getTashkentDateStr();
+
+      if (log && log.check_in_time) {
+        const lateTxt = log.late_minutes > 0 ? ` (+${log.late_minutes} daq kechikish)` : " (Vaqtida)";
+        document.getElementById("stCheckIn").textContent = formatTimeUZ(log.check_in_time) + lateTxt;
+      } else if (log && log.status === 'Sababli') {
+        document.getElementById("stCheckIn").textContent = `Sababli: ${log.note || ''}`;
+      } else {
+        document.getElementById("stCheckIn").textContent = "Hali qayd etilmagan";
+      }
+
+      if (log && log.check_out_time) {
+        document.getElementById("stCheckOut").textContent = formatTimeUZ(log.check_out_time);
+      } else {
+        document.getElementById("stCheckOut").textContent = "Hali qayd etilmagan";
+      }
+    }
+
+    // GPS orqali kelish / ketishni yozish
+    function submitAttendance(type) {
+      const staffId = document.getElementById("staffSelect").value;
+      if (!staffId) {
+        showToast("⚠️ Avval ro‘yxatdan F.I.Sh. ni tanlang!");
+        return;
+      }
+
+      const staff = staffList.find(s => String(s.id) === String(staffId));
+      const myDevice = getDeviceFingerprint();
+
+      // Anti-cheat 1: Qurilma tekshiruvi
+      if (staff.device_fingerprint && staff.device_fingerprint !== myDevice) {
+        alert("⛔ XAVFSIZLIK CHEKLOVI:
+Ushbu xodim profili boshqa telefonga biriktirilgan!
+Boshqa qurilmadan davomat belgilash taqiqlanadi. Telefon almashtirgan bo‘lsangiz, Dekan (Admin) dan qurilmani yangilashni so‘rang.");
+        return;
+      }
+
+      const statusCard = document.getElementById("gpsStatusCard");
+      statusCard.innerHTML = "📡 <b>GPS sun'iy yo‘ldoshlaridan joylashuv olinmoqda...</b> Iltimos kuting.";
+
+      if (!navigator.geolocation) {
+        statusCard.innerHTML = "❌ Brauzeringiz GPS ni qo‘llab-quvvatlamaydi.";
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const acc = Math.round(pos.coords.accuracy || 0);
+
+          // Anti-cheat 2: Fake GPS aniqlik tekshiruvi
+          if (acc === 0) {
+            statusCard.innerHTML = "⛔ Shubhali (soxta) GPS signali aniqlandi. Qurilma GPS sozlamasini tekshiring.";
+            return;
+          }
+
+          const distance = calculateDistanceMeters(lat, lng, settings.lat, settings.lng);
+
+          if (distance > settings.radius_meters) {
+            statusCard.className = "p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800";
+            statusCard.innerHTML = `❌ <b>Rad etildi!</b> Siz universitet hududida emassiz.<br>Hozirgi masofa: <b>${distance} metr</b> (Ruxsat etilgan: ${settings.radius_meters} m).`;
+            return;
+          }
+
+          // Birinchi marta kirayotgan bo'lsa, qurilmani unga biriktiramiz
+          if (!staff.device_fingerprint) {
+            await sb.from('staff_members').update({ device_fingerprint: myDevice }).eq('id', staff.id);
+          }
+
+          const todayStr = getTashkentDateStr();
+          const nowIso = new Date().toISOString();
+          const existingLog = todayLogs.find(l => String(l.staff_id) === String(staff.id));
+
+          if (type === 'in') {
+            if (existingLog && existingLog.check_in_time) {
+              showToast("ℹ️ Siz bugun allaqachon 'Ishga keldim' tugmasini bosgansiz.");
+              statusCard.innerHTML = `✅ Bugun soat <b>${formatTimeUZ(existingLog.check_in_time)}</b> da kelganingiz qayd etilgan.`;
+              return;
+            }
+
+            const lateMins = computeLateMinutes(settings.work_start);
+            const statusText = lateMins > 0 ? "Kechikdi" : "Vaqtida";
+
+            const payload = {
+              staff_id: staff.id,
+              work_date: todayStr,
+              check_in_time: nowIso,
+              check_in_lat: lat,
+              check_in_lng: lng,
+              check_in_distance: distance,
+              check_in_accuracy: acc,
+              late_minutes: lateMins,
+              status: statusText,
+              device_id: myDevice
+            };
+
+            const { error } = await sb.from('attendance_logs').upsert(payload, { onConflict: 'staff_id,work_date' });
+            if (error) {
+              showToast("❌ Xatolik: " + error.message);
+              return;
+            }
+
+            statusCard.className = "p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900";
+            statusCard.innerHTML = `✅ <b>Muvaffaqiyatli!</b> Universitet hududida (${distance} m) ekanligingiz tasdiqlandi.<br>Kelish vaqti: <b>${formatTimeUZ(nowIso)}</b> ${lateMins > 0 ? `(Kechikish: ${lateMins} daq)` : ''}`;
+            showToast("✅ Ishga kelganingiz qayd etildi!");
+          } else {
+            if (!existingLog || !existingLog.check_in_time) {
+              showToast("⚠️ Avval 'Ishga keldim' tugmasini bosishingiz kerak!");
+              return;
+            }
+            if (existingLog.check_out_time) {
+              showToast("ℹ️ Bugungi ketish vaqtingiz allaqachon yozilgan.");
+              return;
+            }
+
+            const { error } = await sb.from('attendance_logs').update({
+              check_out_time: nowIso,
+              check_out_lat: lat,
+              check_out_lng: lng,
+              check_out_distance: distance
+            }).eq('id', existingLog.id);
+
+            if (error) {
+              showToast("❌ Xatolik: " + error.message);
+              return;
+            }
+
+            statusCard.className = "p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900";
+            statusCard.innerHTML = `🔵 <b>Ish kuni yakunlandi!</b> Ketish vaqti: <b>${formatTimeUZ(nowIso)}</b> (${distance} m).`;
+            showToast("🔵 Ishdan ketish vaqtingiz qayd etildi!");
+          }
+
+          await loadAllData();
+        },
+        (err) => {
+          statusCard.className = "p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900";
+          statusCard.innerHTML = "⚠️ <b>GPS yoqilmagan!</b> Telefoningizda Joylashuv (Location / GPS) funksiyasini yoqing va brauzerga ruxsat bering.";
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+
+    function toggleExcuseBox() {
+      document.getElementById("excuseBox").classList.toggle("hidden");
+    }
+
+    async function submitExcuse() {
+      const staffId = document.getElementById("staffSelect").value;
+      const reason = document.getElementById("excuseReason").value.trim();
+      if (!staffId || !reason) {
+        showToast("⚠️ Xodimni tanlang va sababni yozing!");
+        return;
+      }
+      const todayStr = getTashkentDateStr();
+      const { error } = await sb.from('attendance_logs').upsert({
+        staff_id: Number(staffId),
+        work_date: todayStr,
+        status: 'Sababli',
+        note: reason
+      }, { onConflict: 'staff_id,work_date' });
+
+      if (!error) {
+        showToast("✅ Sababli holat yuborildi");
+        document.getElementById("excuseReason").value = "";
+        document.getElementById("excuseBox").classList.add("hidden");
+        await loadAllData();
+      }
+    }
+
+    function renderPublicTodayList() {
+      const container = document.getElementById("publicTodayList");
+      if (!staffList.length) return;
+      container.innerHTML = staffList.map((s, idx) => {
+        const log = todayLogs.find(l => l.staff_id === s.id);
+        let badge = `<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[11px]">Kelmagan</span>`;
+        let timeInfo = "";
+        if (log) {
+          if (log.status === 'Sababli') {
+            badge = `<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-medium">Sababli</span>`;
+            timeInfo = log.note || "";
+          } else if (log.late_minutes > 0) {
+            badge = `<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-medium">+${log.late_minutes} daq</span>`;
+            timeInfo = `${formatTimeUZ(log.check_in_time).slice(0,5)} ${log.check_out_time ? '→ ' + formatTimeUZ(log.check_out_time).slice(0,5) : ''}`;
+          } else if (log.check_in_time) {
+            badge = `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-medium">Vaqtida</span>`;
+            timeInfo = `${formatTimeUZ(log.check_in_time).slice(0,5)} ${log.check_out_time ? '→ ' + formatTimeUZ(log.check_out_time).slice(0,5) : ''}`;
+          }
+        }
+        return `
+          <div class="py-2.5 flex items-center justify-between gap-2">
+            <div>
+              <div class="font-semibold text-slate-800">${idx + 1}. ${s.full_name}</div>
+              <div class="text-[11px] text-slate-400">${timeInfo || s.position}</div>
+            </div>
+            <div>${badge}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // ================= ADMIN FUNKSIYALARI =================
+    function switchTab(tab) {
+      if (tab === 'staff') {
+        document.getElementById("staffView").classList.remove("hidden");
+        document.getElementById("adminView").classList.add("hidden");
+        document.getElementById("tabBtnStaff").className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-slate-900 shadow transition";
+        document.getElementById("tabBtnAdmin").className = "px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-100 hover:text-white transition";
+      } else {
+        document.getElementById("staffView").classList.add("hidden");
+        document.getElementById("adminView").classList.remove("hidden");
+        document.getElementById("tabBtnAdmin").className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-slate-900 shadow transition";
+        document.getElementById("tabBtnStaff").className = "px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-100 hover:text-white transition";
+      }
+    }
+
+    function openAdminTab() {
+      if (adminUnlocked) {
+        switchTab('admin');
+        return;
+      }
+      document.getElementById("pinModal").classList.remove("hidden");
+      document.getElementById("pinInput").focus();
+    }
+
+    function closePinModal() {
+      document.getElementById("pinModal").classList.add("hidden");
+      document.getElementById("pinInput").value = "";
+    }
+
+    function verifyPin() {
+      const entered = document.getElementById("pinInput").value.trim();
+      if (entered === String(settings.admin_pin)) {
+        adminUnlocked = true;
+        closePinModal();
+        switchTab('admin');
+      } else {
+        showToast("❌ Noto‘g‘ri PIN kod!");
+      }
+    }
+
+    async function loadLogsForDate() {
+      if (!sb) return;
+      const selectedDate = document.getElementById("adminFilterDate").value || getTashkentDateStr();
+      const { data } = await sb.from('attendance_logs').select('*').eq('work_date', selectedDate);
+      adminLogs = data || [];
+
+      let present = 0, late = 0, absent = 0;
+      const tbody = document.getElementById("adminLogsTable");
+      tbody.innerHTML = staffList.map((s, idx) => {
+        const log = adminLogs.find(l => l.staff_id === s.id);
+        let inStr = "—", outStr = "—", statusHtml = `<span class="text-rose-500 font-semibold">Kelmagan</span>`;
+        if (log && log.check_in_time) {
+          present++;
+          inStr = formatTimeUZ(log.check_in_time).slice(0,5);
+          outStr = log.check_out_time ? formatTimeUZ(log.check_out_time).slice(0,5) : "—";
+          if (log.late_minutes > 0) {
+            late++;
+            statusHtml = `<span class="text-amber-600 font-bold">+${log.late_minutes} daq</span> <span class="text-slate-400">(${log.check_in_distance}m)</span>`;
+          } else {
+            statusHtml = `<span class="text-emerald-600 font-bold">Vaqtida</span> <span class="text-slate-400">(${log.check_in_distance}m)</span>`;
+          }
+        } else if (log && log.status === 'Sababli') {
+          present++;
+          statusHtml = `<span class="text-blue-600 font-semibold">Sababli</span>`;
+        } else {
+          absent++;
+        }
+        return `
+          <tr>
+            <td class="py-2 px-2 font-medium text-slate-800">${idx + 1}. ${s.full_name}</td>
+            <td class="py-2 px-1.5 text-center font-mono">${inStr}</td>
+            <td class="py-2 px-1.5 text-center font-mono">${outStr}</td>
+            <td class="py-2 px-2 text-right">${statusHtml}</td>
+          </tr>
+        `;
+      }).join("");
+
+      document.getElementById("statPresent").textContent = present;
+      document.getElementById("statLate").textContent = late;
+      document.getElementById("statAbsent").textContent = absent;
+    }
+
+    function useCurrentGpsForSettings() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition((pos) => {
+        document.getElementById("setLat").value = pos.coords.latitude.toFixed(6);
+        document.getElementById("setLng").value = pos.coords.longitude.toFixed(6);
+        showToast("📍 Hozirgi GPS koordinatangiz olindi. Endi 'Saqlash' ni bosing.");
+      }, () => showToast("⚠️ GPS ruxsatini yoqing!"));
+    }
+
+    async function saveSettings() {
+      const workStart = document.getElementById("setWorkStart").value;
+      const workEnd = document.getElementById("setWorkEnd").value;
+      const lat = parseFloat(document.getElementById("setLat").value);
+      const lng = parseFloat(document.getElementById("setLng").value);
+      const radius = parseInt(document.getElementById("setRadius").value, 10);
+      const pin = document.getElementById("setAdminPin").value.trim();
+
+      if (!workStart || !workEnd || isNaN(lat) || isNaN(lng) || isNaN(radius) || !pin) {
+        showToast("⚠️ Barcha maydonlarni to‘g‘ri to‘ldiring!");
+        return;
+      }
+
+      const { error } = await sb.from('attendance_settings').update({
+        work_start: workStart,
+        work_end: workEnd,
+        lat: lat,
+        lng: lng,
+        radius_meters: radius,
+        admin_pin: pin,
+        updated_at: new Date().toISOString()
+      }).eq('id', 1);
+
+      if (error) {
+        showToast("❌ Xatolik: " + error.message);
+      } else {
+        showToast("✅ Sozlamalar muvaffaqiyatli saqlandi!");
+        await loadAllData();
+      }
+    }
+
+    async function addStaffMember() {
+      const name = document.getElementById("newStaffName").value.trim();
+      const pos = document.getElementById("newStaffPos").value.trim() || "Tyutor";
+      if (!name) {
+        showToast("⚠️ Xodim F.I.Sh. ni kiriting!");
+        return;
+      }
+
+      const { error } = await sb.from('staff_members').insert({
+        full_name: name,
+        position: pos
+      });
+
+      if (error) {
+        showToast("❌ Xatolik: " + error.message);
+      } else {
+        document.getElementById("newStaffName").value = "";
+        showToast("✅ Yangi xodim ro‘yxatga qo‘shildi!");
+        await loadAllData();
+      }
+    }
+
+    function renderAdminStaffList() {
+      const container = document.getElementById("adminStaffList");
+      container.innerHTML = staffList.map((s, idx) => `
+        <div class="py-2.5 flex items-center justify-between gap-2">
+          <div>
+            <div class="font-semibold text-slate-800">${idx + 1}. ${s.full_name}</div>
+            <div class="text-[11px] text-slate-400">${s.position} • ${s.device_fingerprint ? '🔒 Qurilma ulangan' : '🔓 Yangi qurilma'}</div>
+          </div>
+          <div class="flex gap-1.5">
+            ${s.device_fingerprint ? `<button onclick="resetDevice(${s.id})" class="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-semibold">Qurilmani ochish</button>` : ''}
+            <button onclick="deactivateStaff(${s.id}, '${s.full_name.replace(/'/g, "\'")}')" class="px-2 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-semibold">O‘chirish</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function resetDevice(staffId) {
+      if (!confirm("Xodim yangi telefondan kirishi uchun qurilma cheklovini yechasizmi?")) return;
+      await sb.from('staff_members').update({ device_fingerprint: null }).eq('id', staffId);
+      showToast("🔓 Qurilma cheklovi yechildi");
+      await loadAllData();
+    }
+
+    async function deactivateStaff(staffId, name) {
+      if (!confirm(`${name} ni faol xodimlar ro‘yxatidan o‘chirasizmi?`)) return;
+      await sb.from('staff_members').update({ is_active: false }).eq('id', staffId);
+      showToast("🗑️ Xodim ro‘yxatdan o‘chirildi");
+      await loadAllData();
+    }
+
+    // Excel (.xlsx) eksport
+    function exportToExcel() {
+      const dateStr = document.getElementById("adminFilterDate").value || getTashkentDateStr();
+      const rows = staffList.map((s, idx) => {
+        const log = adminLogs.find(l => l.staff_id === s.id);
+        return {
+          "T/r": idx + 1,
+          "Xodim F.I.Sh.": s.full_name,
+          "Lavozimi": s.position,
+          "Sana": dateStr,
+          "Ishga kelish vaqti": log && log.check_in_time ? formatTimeUZ(log.check_in_time) : "—",
+          "Kelish masofasi (m)": log && log.check_in_distance != null ? log.check_in_distance : "—",
+          "Kechikish (daqiqa)": log ? log.late_minutes : 0,
+          "Ishdan ketish vaqti": log && log.check_out_time ? formatTimeUZ(log.check_out_time) : "—",
+          "Holati": log ? log.status : "Kelmagan",
+          "Izoh": log && log.note ? log.note : ""
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [{wch: 5}, {wch: 36}, {wch: 15}, {wch: 12}, {wch: 18}, {wch: 18}, {wch: 16}, {wch: 18}, {wch: 14}, {wch: 25}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Davomat");
+      XLSX.writeFile(wb, `Tyutorlar_GPS_Davomat_${dateStr}.xlsx`);
+    }
+
+    initApp();
+  </script>
+</body>
+</html>
